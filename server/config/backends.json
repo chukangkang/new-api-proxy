@@ -1,0 +1,18 @@
+{
+  "services": {
+    "minimax": {
+      "models": {
+        "minimax-m2.5": {
+          "backends": [
+            {
+              "id": "minimax-m2.5-1",
+              "name": "minimax-m2.5-1",
+              "url": "http://xxx",
+              "weight": 1
+            }
+          ]
+        }
+      }
+    }
+  }
+}

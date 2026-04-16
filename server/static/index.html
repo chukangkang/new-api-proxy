@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 调度网关 - 健康状态仪表板</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            color: #333;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .status-banner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .refresh-info {
+            display: flex;
+            gap: 20px;
+        }
+
+        .refresh-info > span {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-dot.healthy {
+            background: #10b981;
+        }
+
+        .status-dot.unhealthy {
+            background: #ef4444;
+        }
+
+        .status-dot.unknown {
+            background: #9ca3af;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background: #764ba2;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e5e7eb;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 0 20px;
+            border-radius: 12px 12px 0 0;
+        }
+
+        .tab {
+            background: none;
+            border: none;
+            padding: 15px 20px;
+            cursor: pointer;
+            color: #666;
+            font-size: 15px;
+            font-weight: 500;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab:hover {
+            color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 0 12px 12px 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .model-section {
+            margin-bottom: 30px;
+        }
+
+        .model-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+
+        .backends-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+        }
+
+        .backend-card {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .backend-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .backend-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 12px;
+        }
+
+        .backend-name {
+            font-weight: 600;
+            color: #1f2937;
+            font-size: 15px;
+        }
+
+        .backend-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .backend-status.healthy {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .backend-status.unhealthy {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .backend-status.unknown {
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+
+        .backend-url {
+            color: #6b7280;
+            font-size: 12px;
+            word-break: break-all;
+            margin-bottom: 10px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .backend-meta {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-size: 12px;
+        }
+
+        .meta-item {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .meta-label {
+            color: #6b7280;
+        }
+
+        .meta-value {
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        .error-message {
+            color: #dc2626;
+            font-size: 12px;
+            margin-top: 10px;
+            padding: 8px;
+            background: #fef2f2;
+            border-radius: 4px;
+            border-left: 3px solid #dc2626;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #6b7280;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #9ca3af;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #e5e7eb;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .footer {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.7);
+            margin-top: 30px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 API 调度网关</h1>
+            <div class="status-banner">
+                <div class="refresh-info">
+                    <span>
+                        <span class="status-dot healthy"></span>
+                        正常
+                    </span>
+                    <span>
+                        <span class="status-dot unhealthy"></span>
+                        失败
+                    </span>
+                    <span>
+                        <span class="status-dot unknown"></span>
+                        未知
+                    </span>
+                </div>
+                <div>
+                    <button onclick="refreshData()">🔄 立即刷新</button>
+                    <span id="last-refresh" style="margin-left: 15px; color: #999; font-size: 12px;"></span>
+                </div>
+            </div>
+        </header>
+
+        <div id="tabs" class="tabs"></div>
+        <div id="content"></div>
+
+        <div class="footer">
+            <p>✨ 实时监控 API 后端健康状态 | 自动刷新间隔：5秒</p>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        const REFRESH_INTERVAL = 5000; // 5秒
+
+        let allData = {};
+        let activeTab = null;
+
+        async function fetchHealthStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/health/status`);
+                if (!response.ok) throw new Error('获取数据失败');
+                allData = await response.json();
+                renderUI();
+                updateLastRefresh();
+            } catch (error) {
+                console.error('获取数据失败:', error);
+                showError('无法连接到网关');
+            }
+        }
+
+        function renderUI() {
+            const services = Object.keys(allData.data || {});
+            
+            if (services.length === 0) {
+                document.getElementById('tabs').innerHTML = '';
+                document.getElementById('content').innerHTML = '<div class="no-data">暂无服务数据</div>';
+                return;
+            }
+
+            if (!activeTab) {
+                activeTab = services[0];
+            }
+
+            // 渲染标签页
+            renderTabs(services);
+            
+            // 渲染内容
+            renderContent(activeTab);
+        }
+
+        function renderTabs(services) {
+            const tabsHtml = services.map(service => `
+                <button class="tab ${service === activeTab ? 'active' : ''}" onclick="switchTab('${service}')">
+                    ${service}
+                </button>
+            `).join('');
+            
+            document.getElementById('tabs').innerHTML = tabsHtml;
+        }
+
+        function renderContent(service) {
+            const serviceData = allData.data[service];
+            if (!serviceData) {
+                document.getElementById('content').innerHTML = '<div class="no-data">暂无数据</div>';
+                return;
+            }
+
+            let html = `<div class="tab-content active">`;
+            
+            // 统计信息
+            const stats = calculateStats(serviceData);
+            html += `
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="stat-number">${stats.total}</div>
+                        <div class="stat-label">总后端数</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">${stats.healthy}</div>
+                        <div class="stat-label">正常节点</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">${stats.unhealthy}</div>
+                        <div class="stat-label">失败节点</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">${stats.healthyPercent}%</div>
+                        <div class="stat-label">可用率</div>
+                    </div>
+                </div>
+            `;
+
+            // 模型分组
+            Object.entries(serviceData).forEach(([model, backends]) => {
+                html += `
+                    <div class="model-section">
+                        <div class="model-title">📦 ${model}</div>
+                        <div class="backends-grid">
+                `;
+                
+                backends.forEach(backend => {
+                    const responseTime = backend.response_time_ms > 0 ? `${backend.response_time_ms.toFixed(1)}ms` : '-';
+                    const lastCheck = backend.last_check ? new Date(backend.last_check).toLocaleTimeString('zh-CN') : '-';
+                    
+                    html += `
+                        <div class="backend-card">
+                            <div class="backend-header">
+                                <span class="backend-name">${backend.name}</span>
+                                <span class="backend-status ${backend.status}">
+                                    <span class="status-dot ${backend.status}"></span>
+                                    ${getStatusText(backend.status)}
+                                </span>
+                            </div>
+                            <div class="backend-url">${backend.url}</div>
+                            <div class="backend-meta">
+                                <div class="meta-item">
+                                    <span class="meta-label">ID:</span>
+                                    <span class="meta-value">${backend.id}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">响应时间:</span>
+                                    <span class="meta-value">${responseTime}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">权重:</span>
+                                    <span class="meta-value">${backend.weight}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">最后检查:</span>
+                                    <span class="meta-value">${lastCheck}</span>
+                                </div>
+                            </div>
+                            ${backend.error_message ? `<div class="error-message">⚠️ ${backend.error_message}</div>` : ''}
+                        </div>
+                    `;
+                });
+                
+                html += `</div></div>`;
+            });
+
+            html += `</div>`;
+            document.getElementById('content').innerHTML = html;
+        }
+
+        function calculateStats(serviceData) {
+            let total = 0, healthy = 0, unhealthy = 0;
+
+            Object.values(serviceData).forEach(backends => {
+                backends.forEach(backend => {
+                    total++;
+                    if (backend.status === 'healthy') healthy++;
+                    else if (backend.status === 'unhealthy') unhealthy++;
+                });
+            });
+
+            const healthyPercent = total > 0 ? Math.round((healthy / total) * 100) : 0;
+
+            return { total, healthy, unhealthy, healthyPercent };
+        }
+
+        function getStatusText(status) {
+            const texts = {
+                'healthy': '✅ 正常',
+                'unhealthy': '❌ 失败',
+                'unknown': '❓ 未知'
+            };
+            return texts[status] || status;
+        }
+
+        function switchTab(service) {
+            activeTab = service;
+            renderUI();
+        }
+
+        function refreshData() {
+            fetchHealthStatus();
+        }
+
+        function updateLastRefresh() {
+            const now = new Date();
+            document.getElementById('last-refresh').textContent = `最后刷新: ${now.toLocaleTimeString('zh-CN')}`;
+        }
+
+        function showError(message) {
+            document.getElementById('content').innerHTML = `<div class="no-data" style="color: #dc2626;">${message}</div>`;
+        }
+
+        // 初始化
+        fetchHealthStatus();
+        setInterval(fetchHealthStatus, REFRESH_INTERVAL);
+    </script>
+</body>
+</html>

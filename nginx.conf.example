@@ -1,0 +1,200 @@
+# Nginx 反向代理配置示例
+
+## 基础配置
+
+```nginx
+upstream api_proxy_backend {
+    server localhost:8000;
+}
+
+server {
+    listen 80;
+    server_name api-proxy.example.com;
+
+    client_max_body_size 100M;
+
+    # 重定向到 HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name api-proxy.example.com;
+
+    # SSL 证书
+    ssl_certificate /etc/letsencrypt/live/api-proxy.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api-proxy.example.com/privkey.pem;
+
+    # SSL 安全配置
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    client_max_body_size 100M;
+
+    # 日志
+    access_log /var/log/nginx/api-proxy-access.log;
+    error_log /var/log/nginx/api-proxy-error.log;
+
+    # 代理配置
+    location / {
+        proxy_pass http://api_proxy_backend;
+        
+        # 保留原始请求信息
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+
+        # WebSocket 支持
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # 超时配置
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+
+        # 缓冲
+        proxy_buffering off;
+    }
+
+    # API 端点
+    location /api/ {
+        proxy_pass http://api_proxy_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # 仪表板
+    location / {
+        proxy_pass http://api_proxy_backend;
+    }
+
+    # 健康检查（Nginx 不转发给上游）
+    location /health {
+        proxy_pass http://api_proxy_backend;
+        access_log off;
+    }
+}
+```
+
+## 带速率限制的配置
+
+```nginx
+# 定义速率限制
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=100r/s;
+
+server {
+    # ... SSL 配置 ...
+
+    location / {
+        # 应用速率限制
+        limit_req zone=api_limit burst=200 nodelay;
+
+        proxy_pass http://api_proxy_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+## 负载均衡配置（多个网关实例）
+
+```nginx
+upstream api_proxy_cluster {
+    # 轮询
+    server gateway1.internal:8000 weight=1;
+    server gateway2.internal:8000 weight=1;
+    server gateway3.internal:8000 weight=1;
+
+    # 配置连接池
+    keepalive 32;
+}
+
+server {
+    # ... SSL 配置 ...
+
+    location / {
+        proxy_pass http://api_proxy_cluster;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        
+        # 其他代理设置...
+    }
+}
+```
+
+## 监控和日志
+
+```nginx
+# 定义日志格式
+log_format api_proxy_log '$remote_addr - $remote_user [$time_local] '
+                          '"$request" $status $body_bytes_sent '
+                          '"$http_referer" "$http_user_agent" '
+                          'rt=$request_time uct="$upstream_connect_time" '
+                          'uht="$upstream_header_time" urt="$upstream_response_time"';
+
+server {
+    access_log /var/log/nginx/api-proxy.log api_proxy_log;
+
+    # 状态监控
+    location /nginx_status {
+        stub_status;
+        access_log off;
+        allow 127.0.0.1;
+        deny all;
+    }
+}
+```
+
+## 测试配置
+
+```bash
+# 检查配置语法
+sudo nginx -t
+
+# 重新加载配置
+sudo systemctl reload nginx
+
+# 查看日志
+tail -f /var/log/nginx/api-proxy-access.log
+tail -f /var/log/nginx/api-proxy-error.log
+
+# 测试代理
+curl -i https://api-proxy.example.com/health
+```
+
+## 性能优化建议
+
+1. **启用压缩**:
+```nginx
+gzip on;
+gzip_types application/json;
+gzip_min_length 1024;
+```
+
+2. **缓存**:
+```nginx
+proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=api_cache:10m;
+
+location / {
+    proxy_cache api_cache;
+    proxy_cache_valid 200 10m;
+    add_header X-Cache-Status $upstream_cache_status;
+}
+```
+
+3. **连接复用**:
+```nginx
+keepalive 100;
+```
+
+---
+
+**版本:** 1.0.0
