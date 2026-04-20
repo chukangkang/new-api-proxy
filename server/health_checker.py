@@ -5,6 +5,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
+from typing import Optional
 import httpx
 
 from models import HealthStatus
@@ -22,21 +23,36 @@ class HealthChecker:
         self.is_running = False
         self.last_check_time = {}
     
-    def _get_auth_headers(self) -> dict:
-        """获取认证请求头"""
+    def _get_auth_headers(
+        self,
+        api_key: Optional[str] = None,
+        auth_mode: Optional[str] = None,
+    ) -> dict:
+        """获取认证请求头
+
+        per-backend 的 api_key/auth_mode 优先，全局 settings 作为兜底，
+        行为与 main.py 转发路径保持一致，避免 health check 与实际请求鉴权不一致。
+        """
         headers = {}
-        if settings.backend_api_key:
-            if settings.backend_auth_mode.lower() == "authorization":
-                headers["Authorization"] = f"Bearer {settings.backend_api_key}"
-            elif settings.backend_auth_mode.lower() == "x-api-key":
-                headers["X-API-Key"] = settings.backend_api_key
+        key = api_key or settings.backend_api_key
+        mode = auth_mode or settings.backend_auth_mode
+        if key:
+            if mode and mode.lower() == "authorization":
+                headers["Authorization"] = f"Bearer {key}"
+            elif mode and mode.lower() == "x-api-key":
+                headers["X-API-Key"] = key
         return headers
     
-    async def _probe_models(self, url: str) -> tuple:
+    async def _probe_models(
+        self,
+        url: str,
+        api_key: Optional[str] = None,
+        auth_mode: Optional[str] = None,
+    ) -> tuple:
         """探测 GET /v1/models。返回 (ok, response_time_ms, error_message)。"""
         start_time = time.time()
         try:
-            headers = self._get_auth_headers()
+            headers = self._get_auth_headers(api_key, auth_mode)
             async with httpx.AsyncClient(timeout=settings.health_check_timeout) as client:
                 response = await client.get(
                     f"{url}/v1/models", headers=headers, follow_redirects=True
@@ -50,7 +66,13 @@ class HealthChecker:
         except Exception as e:
             return (False, (time.time() - start_time) * 1000, str(e))
     
-    async def _probe_chat_completions(self, url: str, model: str) -> tuple:
+    async def _probe_chat_completions(
+        self,
+        url: str,
+        model: str,
+        api_key: Optional[str] = None,
+        auth_mode: Optional[str] = None,
+    ) -> tuple:
         """探测 POST /v1/chat/completions（最小 tokens）。返回 (ok, response_time_ms, error_message)。"""
         start_time = time.time()
         payload = {
@@ -60,7 +82,7 @@ class HealthChecker:
             "stream": False,
         }
         try:
-            headers = {**self._get_auth_headers(), "Content-Type": "application/json"}
+            headers = {**self._get_auth_headers(api_key, auth_mode), "Content-Type": "application/json"}
             async with httpx.AsyncClient(timeout=settings.health_check_timeout) as client:
                 response = await client.post(
                     f"{url}/v1/chat/completions",
@@ -77,13 +99,24 @@ class HealthChecker:
         except Exception as e:
             return (False, (time.time() - start_time) * 1000, str(e))
     
-    async def check_backend_health(self, url: str, service: str, model: str, backend_id: str):
+    async def check_backend_health(
+        self,
+        url: str,
+        service: str,
+        model: str,
+        backend_id: str,
+        api_key: Optional[str] = None,
+        auth_mode: Optional[str] = None,
+    ):
         """
         检查单个后端健康：优先 GET /v1/models，失败则回退到 POST /v1/chat/completions
         （最小 tokens 提问）。任一成功即判定 HEALTHY。
+
+        api_key/auth_mode 为 per-backend 配置，优先使用，全局 settings 作为兑底，
+        语义与 main.py 转发路径完全一致。
         """
         # 1) 优先 /v1/models
-        ok, response_time, err_models = await self._probe_models(url)
+        ok, response_time, err_models = await self._probe_models(url, api_key, auth_mode)
         probe_used = "/v1/models"
         
         # 2) 失败则回退 /v1/chat/completions（最小 tokens）
@@ -91,7 +124,7 @@ class HealthChecker:
             logger.debug(
                 f"{service}/{model}/{backend_id} /v1/models 失败 ({err_models})，回退 /v1/chat/completions"
             )
-            ok2, rt2, err_chat = await self._probe_chat_completions(url, model)
+            ok2, rt2, err_chat = await self._probe_chat_completions(url, model, api_key, auth_mode)
             if ok2:
                 ok = True
                 response_time = rt2
@@ -137,7 +170,9 @@ class HealthChecker:
                         url=backend.url,
                         service=service,
                         model=model,
-                        backend_id=backend.id
+                        backend_id=backend.id,
+                        api_key=backend.api_key,
+                        auth_mode=backend.auth_mode,
                     )
                     tasks.append(task)
         
