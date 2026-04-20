@@ -69,7 +69,10 @@ class HealthChecker:
                     follow_redirects=True,
                 )
             elapsed = (time.time() - start_time) * 1000
-            if response.status_code < 500:
+            # 白名单状态码：200/204/401/403/405 表示后端可达（服务在线/路由存在/鉴权中间件）
+            # 其他状态码（含 404/5xx）一律判 UNHEALTHY，避免 frp/nginx 代理层误判
+            healthy_status_codes = {200, 204, 401, 403, 405}
+            if response.status_code in healthy_status_codes:
                 return (True, elapsed, None)
             return (False, elapsed, f"HTTP {response.status_code}")
         except asyncio.TimeoutError:
