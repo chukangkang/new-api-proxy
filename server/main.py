@@ -437,10 +437,15 @@ async def forward_request(
         body = await request.body()
         headers = dict(request.headers)
 
-        # 清理无效头
+        # 清理无效头 + 客户端认证头
+        # 注意：ASGI 规范保证 request.headers 的 key 全部是小写，但后面我们会以
+        # "Authorization"/"X-API-Key" 大写形式注入后端认证头。Python dict 区分大小写，
+        # 若不先剔除客户端原始的 "authorization"/"x-api-key"，会同时保留两份认证头，
+        # 被上游 ALB/nginx 判为协议违规返回 400。
         hop_by_hop = {
             "host", "connection", "keep-alive", "transfer-encoding",
-            "accept-encoding", "content-length"
+            "accept-encoding", "content-length",
+            "authorization", "x-api-key",
         }
         headers = {k: v for k, v in headers.items() if k.lower() not in hop_by_hop}
         headers["Accept-Encoding"] = "identity"
