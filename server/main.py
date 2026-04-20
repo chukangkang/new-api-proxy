@@ -21,8 +21,11 @@ from config import settings
 from backends_manager import BackendsManager
 from health_checker import HealthChecker
 from models import HealthStatus, HealthStatusResponse, ErrorResponse, BackendInfo, BackendInfoPublic
+from time_utils import setup_shanghai_logging
 
 # ==================== 日志配置 ====================
+# 必须在 basicConfig 之前调用，确保所有 Formatter 使用上海时间
+setup_shanghai_logging()
 logging.basicConfig(
     level=settings.log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -33,6 +36,47 @@ logger = logging.getLogger(__name__)
 backends_manager: Optional[BackendsManager] = None
 health_checker: Optional[HealthChecker] = None
 httpx_client: Optional[httpx.AsyncClient] = None  # 全局 httpx 客户端
+config_watcher_task: Optional[asyncio.Task] = None  # 配置文件监听任务
+
+
+# ==================== 配置文件监听 ====================
+async def watch_config_file():
+    """
+    后台任务：轮询 backends.json 的 mtime，检测到变化时触发热重载。
+    - 仅检测 mtime，不读取文件内容，开销极小
+    - reload 使用增量合并，不影响其他正常节点和在途请求
+    - JSON 语法错误/IO 错误时保持旧配置继续运行
+    """
+    from pathlib import Path
+    config_path = Path(settings.backends_config_path)
+    logger.info(
+        f"👁️  启动配置文件监听: {config_path} "
+        f"(间隔 {settings.config_reload_interval}s)"
+    )
+    
+    while True:
+        try:
+            await asyncio.sleep(settings.config_reload_interval)
+            if backends_manager is None:
+                continue
+            try:
+                current_mtime = config_path.stat().st_mtime
+            except OSError as e:
+                logger.warning(f"⚠️  读取配置文件 mtime 失败: {e}")
+                continue
+            
+            # mtime 变化 → 触发热重载
+            if current_mtime > backends_manager.last_mtime:
+                logger.info(f"📝 检测到配置文件变更 (mtime {backends_manager.last_mtime} → {current_mtime})，开始热重载...")
+                try:
+                    await backends_manager.reload_config()
+                except Exception as e:
+                    logger.error(f"❌ 自动热重载失败（保持旧配置）: {e}")
+        except asyncio.CancelledError:
+            logger.info("👁️  配置文件监听已停止")
+            break
+        except Exception as e:
+            logger.error(f"配置文件监听异常: {e}", exc_info=True)
 
 
 
@@ -97,7 +141,7 @@ async def get_httpx_client() -> httpx.AsyncClient:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用启动/关闭生命周期"""
-    global backends_manager, health_checker, httpx_client
+    global backends_manager, health_checker, httpx_client, config_watcher_task
     
     # 启动
     logger.info("🚀 应用启动中...")
@@ -111,6 +155,12 @@ async def lifespan(app: FastAPI):
     # 在后台启动健康检查
     health_check_task = asyncio.create_task(health_checker.start())
     
+    # 在后台启动配置文件监听（热加载）
+    if settings.config_reload_watch:
+        config_watcher_task = asyncio.create_task(watch_config_file())
+    else:
+        logger.info("👁️  配置文件监听已禁用 (CONFIG_RELOAD_WATCH=false)")
+    
     logger.info("✅ 应用启动完成")
     
     yield  # 应用运行
@@ -119,6 +169,14 @@ async def lifespan(app: FastAPI):
     logger.info("🛑 应用关闭中...")
     if health_checker:
         health_checker.stop()
+    
+    # 取消配置监听任务
+    if config_watcher_task and not config_watcher_task.done():
+        config_watcher_task.cancel()
+        try:
+            await config_watcher_task
+        except asyncio.CancelledError:
+            pass
     
     # 关闭 httpx 连接池
     if httpx_client:
@@ -277,6 +335,46 @@ async def get_service_health(service: str):
     return {
         "service": service,
         "data": public_backends
+    }
+
+
+# ==================== 配置热重载端点 ====================
+@app.post("/api/config/reload")
+async def reload_config_endpoint():
+    """
+    手动触发 backends.json 热重载（增量合并）。
+    - 保留同 id 后端的健康状态、响应时间，不影响其他正常节点
+    - 在途请求已持有后端引用，继续正常完成
+    - JSON 非法时返回 400 并保持旧配置
+    - 受 API 密钥中间件保护（需 Authorization/X-API-Key 头）
+    """
+    if backends_manager is None:
+        raise HTTPException(status_code=503, detail="应用未完全初始化")
+    try:
+        diff = await backends_manager.reload_config()
+        return {
+            "status": "ok",
+            "message": "配置已热重载",
+            "diff": diff,
+        }
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"配置文件不存在: {e}")
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"配置文件 JSON 格式错误: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"热重载失败: {e}")
+
+
+@app.get("/api/config/status")
+async def config_status_endpoint():
+    """查询当前配置文件监听状态与已加载 mtime"""
+    if backends_manager is None:
+        raise HTTPException(status_code=503, detail="应用未完全初始化")
+    return {
+        "watch_enabled": settings.config_reload_watch,
+        "watch_interval_seconds": settings.config_reload_interval,
+        "config_path": str(backends_manager.config_path),
+        "loaded_mtime": backends_manager.last_mtime,
     }
 
 

@@ -332,6 +332,7 @@
                 </div>
                 <div>
                     <button onclick="refreshData()">🔄 立即刷新</button>
+                    <button onclick="reloadConfig()" style="margin-left: 8px; background: #10b981;" title="重新加载 backends.json（无需重启）">♻️ 热重载配置</button>
                     <span id="last-refresh" style="margin-left: 15px; color: #999; font-size: 12px;"></span>
                 </div>
             </div>
@@ -348,6 +349,23 @@
     <script>
         const API_BASE = window.location.origin;
         const REFRESH_INTERVAL = 5000; // 5秒
+
+        // 统一显示上海时间 (Asia/Shanghai, UTC+8)
+        const SHANGHAI_TIME_OPTS = { timeZone: 'Asia/Shanghai', hour12: false };
+        const SHANGHAI_DATETIME_OPTS = {
+            timeZone: 'Asia/Shanghai',
+            hour12: false,
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
+        };
+
+        function formatShanghaiTime(date) {
+            return date.toLocaleTimeString('zh-CN', SHANGHAI_TIME_OPTS);
+        }
+
+        function formatShanghaiDateTime(date) {
+            return date.toLocaleString('zh-CN', SHANGHAI_DATETIME_OPTS);
+        }
 
         let allData = {};
         let activeTab = null;
@@ -437,7 +455,7 @@
                 
                 backends.forEach(backend => {
                     const responseTime = backend.response_time_ms > 0 ? `${backend.response_time_ms.toFixed(1)}ms` : '-';
-                    const lastCheck = backend.last_check ? new Date(backend.last_check).toLocaleTimeString('zh-CN') : '-';
+                    const lastCheck = backend.last_check ? formatShanghaiTime(new Date(backend.last_check)) : '-';
                     
                     html += `
                         <div class="backend-card">
@@ -513,9 +531,52 @@
             fetchHealthStatus();
         }
 
+        async function reloadConfig() {
+            // API Key 存储在 localStorage 便于复用
+            let apiKey = localStorage.getItem('api_key') || '';
+            if (!apiKey) {
+                apiKey = prompt('请输入 API Key (用于热重载权限校验):', '');
+                if (!apiKey) return;
+                localStorage.setItem('api_key', apiKey);
+            }
+            try {
+                const response = await fetch(`${API_BASE}/api/config/reload`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                if (response.status === 401) {
+                    localStorage.removeItem('api_key');
+                    alert('❌ API Key 无效，请重新输入');
+                    return;
+                }
+                const result = await response.json();
+                if (!response.ok) {
+                    alert(`❌ 热重载失败: ${result.error || result.detail || response.statusText}`);
+                    return;
+                }
+                const d = result.diff || {};
+                const summary = [
+                    `新增后端: ${(d.added || []).length}`,
+                    `移除后端: ${(d.removed || []).length}`,
+                    `更新后端: ${(d.updated || []).length}`,
+                    `新增服务: ${(d.service_added || []).length}`,
+                    `移除服务: ${(d.service_removed || []).length}`,
+                ].join('\n');
+                alert(`✅ 配置热重载成功\n\n${summary}`);
+                // 刷新数据
+                fetchHealthStatus();
+            } catch (error) {
+                console.error('热重载失败:', error);
+                alert(`❌ 热重载请求失败: ${error.message}`);
+            }
+        }
+
         function updateLastRefresh() {
             const now = new Date();
-            document.getElementById('last-refresh').textContent = `最后刷新: ${now.toLocaleTimeString('zh-CN')}`;
+            document.getElementById('last-refresh').textContent = `最后刷新: ${formatShanghaiTime(now)} (上海时间)`;
         }
 
         function showError(message) {

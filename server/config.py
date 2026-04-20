@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     request_timeout: float = 30.0
     health_check_timeout: float = 5.0
     
+    # 配置热加载
+    config_reload_watch: bool = True      # 是否启用 backends.json 文件监听热加载
+    config_reload_interval: float = 2.0   # 文件 mtime 轮询间隔（秒）
+    
     # 并发和连接池配置
     max_connections: int = 100  # httpx 连接池大小
     max_keepalive_connections: int = 20  # 保活连接数

@@ -349,6 +349,13 @@
         const API_BASE = window.location.origin;
         const REFRESH_INTERVAL = 5000; // 5秒
 
+        // 统一显示上海时间 (Asia/Shanghai, UTC+8)
+        const SHANGHAI_TIME_OPTS = { timeZone: 'Asia/Shanghai', hour12: false };
+
+        function formatShanghaiTime(date) {
+            return date.toLocaleTimeString('zh-CN', SHANGHAI_TIME_OPTS);
+        }
+
         let allData = {};
         let activeTab = null;
 
@@ -437,7 +444,7 @@
                 
                 backends.forEach(backend => {
                     const responseTime = backend.response_time_ms > 0 ? `${backend.response_time_ms.toFixed(1)}ms` : '-';
-                    const lastCheck = backend.last_check ? new Date(backend.last_check).toLocaleTimeString('zh-CN') : '-';
+                    const lastCheck = backend.last_check ? formatShanghaiTime(new Date(backend.last_check)) : '-';
                     
                     html += `
                         <div class="backend-card">
@@ -515,7 +522,7 @@
 
         function updateLastRefresh() {
             const now = new Date();
-            document.getElementById('last-refresh').textContent = `最后刷新: ${now.toLocaleTimeString('zh-CN')}`;
+            document.getElementById('last-refresh').textContent = `最后刷新: ${formatShanghaiTime(now)} (上海时间)`;
         }
 
         function showError(message) {

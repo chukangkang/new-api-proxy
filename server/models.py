@@ -6,6 +6,8 @@ from typing import List, Dict, Any, Optional, Literal
 from enum import Enum
 from datetime import datetime
 
+from time_utils import now_shanghai
+
 
 class HealthStatus(str, Enum):
     """健康状态"""
@@ -68,12 +70,12 @@ class ErrorResponse(BaseModel):
     """错误响应"""
     error: str
     request_id: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=now_shanghai)
 
 
 class HealthStatusResponse(BaseModel):
     """健康检查响应"""
     service: str
     type_name: Literal["health_status"]
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=now_shanghai)
     data: Dict[str, Dict[str, List[BackendInfo]]]

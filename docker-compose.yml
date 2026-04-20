@@ -16,6 +16,9 @@ services:
       HEALTH_CHECK_INTERVAL: 30
       REQUEST_TIMEOUT: 30
       HEALTH_CHECK_TIMEOUT: 5
+      # 配置热加载（修改挂载进容器的 backends.json 后自动生效）
+      CONFIG_RELOAD_WATCH: "true"
+      CONFIG_RELOAD_INTERVAL: "2.0"
     volumes:
       - ./server/config:/app/config
       - ./server/logs:/app/logs
